@@ -85,6 +85,81 @@ Ground truth (test results, coverage) never touches agent prompts. Only a scalar
 
 ---
 
+## Part 3: Evaluation & Analysis
+
+### Metrics chosen and why
+
+We track eight metrics per training cycle. They fall into three tiers by reliability:
+
+**Tier 1 — unfakeable ground truth**
+- `avg_test_pass_rate`: after applying the coder's diff, what fraction of the repo's existing tests still pass? This cannot be gamed — a diff that breaks real behaviour will break real tests. A 0.00 almost always means the patch failed to apply at all; 0.95–1.00 means the change was structurally sound.
+- `held_out_avg_reward`: composite reward on issues the agents never saw during training. This is the primary measure of generalisation. It can't be improved by overfitting to training issues and is the single number we care about most.
+
+**Tier 2 — model-in-the-loop signals (useful but gameable)**
+- `avg_final_reward`: weighted average of test pass (50%), judge score (35%), and preference score (15%). Gives a richer picture than tests alone since the judge scores code clarity, issue alignment, and test quality — things the test suite doesn't measure directly.
+- `reviewer_accuracy`: what fraction of reviewer approve/reject decisions matched the ground truth outcome? Measures whether the reviewer's instincts are calibrated to reality rather than to superficial code style.
+- `reviewer_coder_alignment`: for each blocking/suggestion comment, did the next diff address it? Measures whether the coder is actually listening and whether the reviewer is giving actionable feedback.
+
+**Tier 3 — system health**
+- `reward_hacking_rate`: fraction of traces where the judge detected a mismatch between described and actual changes. Should stay near zero.
+- `resolution_rate_le2_rounds`: fraction of issues resolved in ≤2 rounds. Measures efficiency of the feedback loop.
+- `training_data_efficiency`: fraction of traces with uncertainty below the training threshold. Low values mean the signals are disagreeing — usually a sign of a hard issue or a partially wrong fix.
+
+We deliberately chose not to track reward on training issues as a primary metric because it conflates memorisation with improvement. Held-out reward is the honest number.
+
+---
+
+### Did both agents improve? Did one improve at the expense of the other?
+
+**Coder — clear improvement.** Held-out reward went from 0.527 to 0.795 (+51%). Resolution rate in ≤2 rounds went from 50% to 75%. Empty-diff rate dropped to near zero after LEARNED_PATTERNS seeded the failure rules from prior traces.
+
+**Reviewer — more nuanced.** Reviewer accuracy was 1.00 in cycles 1 and 2, then dropped to 0.50 in cycle 3. This looks like regression but isn't: cycle 3 introduced harder issues (nested function context, quote-stripping edge cases) where the correct decision was genuinely ambiguous. When the judge agreed with the reviewer it contributed to LEARNED_PATTERNS calibration; when it disagreed, those cases became correction examples. The reviewer's LEARNED_PATTERNS grew from 0 confirmed cases in cycle 1 to 18 confirmed cases across cycles, with explicit "watch for" patterns extracted from judge reasoning.
+
+**Did one improve at the expense of the other?** The cycle 2 hacking spike is the clearest test of this. The coder briefly learned to write convincing descriptions without implementing the fixes — a direct attempt to game the reviewer. The reviewer kept its standards (accuracy 1.00 in cycle 2, all three hacking attempts correctly rejected), but the coder's reward dropped to 0.450. This is the system working as designed: reviewer stability prevented the coder from drifting, and the hacking traces updated LEARNED_PATTERNS so the coder stopped trying in cycle 3. The two agents did not converge to a collusive equilibrium.
+
+---
+
+### Failure modes observed (and prevented)
+
+**Observed and caught:**
+
+1. **Reward hacking** — cycle 2 saw 3 cases of the coder writing detailed PR descriptions (complete with test scenarios) while the actual diff contained no implementation or trivial changes. The judge scored these 0.05–0.22 and zeroed the oracle reward. All three were added to LEARNED_PATTERNS as named failures with verbatim judge reasoning. Hacking dropped to zero in cycle 3.
+
+2. **Corrupt patches** — early runs had every patch fail with "corrupt patch at line N" because the LLM was generating unified diffs with wrong `@@ hunk header counts`. Solved by switching to `<old>/<new>` blocks and computing the diff with `difflib.unified_diff` — the LLM no longer has to count lines.
+
+3. **Adversarial strictness** — the drift detector fired multiple times (100% rejection rate) in early cycles, writing recalibration notes to `CALIBRATION.md` mid-run. This was mostly triggered by runs where all issues produced empty diffs and the reviewer correctly rejected all of them — the detector was reading legitimate strictness as pathological. Fixed by filtering non-coding issues more aggressively in bootstrap.
+
+4. **LLM prose leaking into file paths** — in `_build_diff_from_changes`, the LLM occasionally put its self-critique text inside the `<file>` tag, causing an `OSError: File name too long`. Fixed with a 200-char path length guard and `\n`-in-path check.
+
+**Deliberately prevented:**
+
+5. **Reviewer collapse** — the anti-collapse guard in `reviewer_agent.py` forces a substantive justification on every approval. If the reviewer tries to approve with zero blocking comments it must either find one or explain in ≥3 specific sentences why the code is correct. This never triggered in the radicli run because the reviewer was appropriately strict, but it fired regularly in early click runs.
+
+6. **Mode collapse** — prevented structurally by the MoE design (three independent personas weighted 50/30/20) and by the information barrier (agents never see each other's scores, only scalar rewards). Persona disagreements are stored as training signal — when the correctness persona and security persona split on a decision, and ground truth resolves the tie, that becomes a calibration example.
+
+7. **Training on noisy signal** — the uncertainty gate (`reward_uncertainty < 0.25`) excluded traces where test pass, judge score, and preference score were in sharp disagreement. This prevented cases like "tests pass but judge detects reward hacking" from being used as positive examples.
+
+---
+
+### What would you do differently?
+
+**With 2 more weeks:**
+
+- **More issues per cycle.** 4 issues/cycle means a single patch failure swings the average by 25%. 10–15 per cycle would give a reliable improvement signal. We'd also re-run issues where the patch failed to apply — one failed patch shouldn't end a trace.
+- **RAG over the codebase instead of keyword grep.** The current file-context injection greps for function names in the issue text. A small embedding index over the repo would retrieve the right context even when the issue doesn't name the function directly — which is the common case on real GitHub issues.
+- **Tighter issue filtering.** The bootstrap filter still lets through some issues that are too ambiguous for the current coder (e.g. "stringify_type should handle Optional" requires understanding Python's type system at a deeper level). A one-shot LLM pass to score issue implementability before adding it to the training set would cut the empty-diff rate further.
+- **Alignment score as a reward modifier, not just a signal.** Right now the alignment score routes traces to coder/reviewer positive or negative buckets. We'd use it as a multiplier on the reward: high alignment × high reward = full weight, low alignment × high reward = downweighted for the reviewer.
+
+**With 2 more months:**
+
+- **Actual fine-tuning loop.** We generate JSONL datasets after every cycle but Anthropic's fine-tuning API isn't public. With access, each cycle's LEARNED_PATTERNS would also be baked into the model weights, not just injected via the system prompt. The separation of "what the model knows" from "what the prompt tells it" would let us measure how much of the improvement comes from in-context learning vs weight updates.
+- **Reviewer as an explicit verifier, not just a critic.** Instead of free-form review comments, structure the reviewer output as a formal verification checklist (does the diff touch the right file? does it handle the edge case in the issue? does the test actually fail before the fix?). Each check becomes a binary ground-truth-verifiable signal, making the alignment score much more precise.
+- **Cross-repo transfer.** The current LEARNED_PATTERNS are repo-specific. With more cycles we'd test whether failure rules learned on radicli transfer to a new repo on first contact — and whether cross-repo traces in the few-shot bank accelerate bootstrapping.
+- **Human-in-the-loop validation.** The judge is a model (claude-sonnet-4-6) and can be wrong. A small human review pass on the top-10% and bottom-10% of traces by reward would catch systematic judge blind spots and generate the highest-quality calibration examples for both agents.
+- **Debate as training signal.** When the three MoE reviewer personas disagree, we log which persona was right (grounded by GT). With enough of these debate examples, we could fine-tune each persona to be more accurate on its specific domain rather than relying on the weighted vote.
+
+---
+
 ## Results
 
 ### pallets/click — system validation (3 training cycles, 5 issues/cycle)
