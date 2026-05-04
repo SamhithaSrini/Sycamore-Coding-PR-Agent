@@ -99,7 +99,25 @@ Instead of LLM-rewritten firmware, `prompt_updater.py` extracts structured facts
 - Coder gets categorised failure rules with counts ("empty_diff: 11 times — always include source changes") and the exact reviewer + judge reasoning from failed traces
 - Reviewer gets ground-truth-confirmed calibration: which patterns the judge confirmed vs contradicted, and persona debate outcomes
 
-### 4. difflib-Based Patch Generation
+### 4. Self-Healing Loops
+
+Both agents have independent self-healing mechanisms operating at two timescales:
+
+**Coder — intra-trace (within a single issue):**
+After each reviewer rejection, the coder reads the blocking comments and rewrites the diff. This continues up to `MAX_ROUNDS` attempts. Each revision prompt includes the previous diff and the exact reviewer feedback, so the coder can see what it got wrong.
+
+**Coder — cross-cycle (after each training batch):**
+`LEARNED_PATTERNS.md` is rebuilt from all traces each cycle. The coder literally reads its own failure categories with counts and the verbatim judge + reviewer reasoning from each failed trace. If "empty_diff" appeared 11 times, it says so — and shows the exact feedback so the coder understands *why* it was wrong, not just *that* it was wrong.
+
+**Reviewer — reactive (mid-run, no cycle boundary needed):**
+The drift detector watches rolling windows of decisions. If it detects collapse (>70% round-1 approval rate) or adversarial strictness (>95% rejection rate), it writes a calibration note to `CALIBRATION.md` immediately — before the next issue runs.
+
+**Reviewer — cross-cycle (after each training batch):**
+`LEARNED_PATTERNS.md` is rebuilt from GT-confirmed vs GT-contradicted decisions. The reviewer sees which of its patterns the judge agreed with and which it got wrong, plus persona debate outcomes (which persona was right when they disagreed).
+
+The key distinction: the coder's intra-trace loop is about *responding to feedback in the moment*; both agents' cross-cycle loop is about *not repeating the same class of mistake across issues*.
+
+### 5. difflib-Based Patch Generation
 The coder outputs `<old>/<new>` code blocks; the system builds the unified diff with `difflib.unified_diff`. Eliminates the classic LLM failure of wrong `@@ hunk header counts` that cause `git apply` to fail with "corrupt patch."
 
 ### 5. Information Barrier
