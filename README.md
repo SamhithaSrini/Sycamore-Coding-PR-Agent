@@ -14,63 +14,8 @@ AI coding agents (Claude Code, Codex) and AI review agents (Bugbot, Greptile) ar
 
 ## Architecture
 
-```
-GitHub Issue
-     │
-     ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Coder Agent  (claude-haiku-4-5)                                │
-│  Injects at inference time:                                     │
-│    • SKILLS.md, RULES.md, STYLE.md, CONSTITUTION.md (firmware) │
-│    • LEARNED_PATTERNS.md  ← failure rules from prior traces     │
-│    • few_shot_bank.json   ← top-20 PRs by judge score           │
-│    • Recent reviewer patterns from traces  ← cross-trace #2    │
-│    • Actual source file content (keyword-routed grep)           │
-│  Outputs: <old>/<new> blocks → difflib builds the patch         │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │ diff
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Pre-Review Hook  (post_pr.py)                                  │
-│  Linter + security scan — reviewer sees this, agents do not     │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │
-                       ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  Reviewer Agent — Mixture of Experts  (claude-haiku-4-5)        │
-│  Three personas review independently, weighted vote synthesises │
-│    • Correctness  (50%) — logic, edge cases, algorithm          │
-│    • Security     (30%) — injection, unsafe ops, credentials    │
-│    • Architecture (20%) — structure, tests, naming              │
-│  Injects: RUBRIC + CALIBRATION + LEARNED_PATTERNS + coder traces│
-│  Anti-collapse guard: forced justification on every approval    │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │
-          ┌────────────┴────────────┐
-          │ approved?               │ changes requested?
-          ▼                         ▼
-  Ground Truth Layer         ┌──────────────────────┐
-  (agents never see raw)     │  Alignment Score      │
-                             │  overlap(comments,    │
-                             │    next_diff)         │
-                             │  → training signal    │
-                             └──────────┬───────────┘
-                                        │
-                                   back to Coder
-                                   (max N rounds)
+<img width="383" height="472" alt="Screenshot 2026-05-04 at 3 53 06 PM" src="https://github.com/user-attachments/assets/e2bec80d-a279-46ed-b578-ee206f441676" />
 
-Ground Truth Layer (isolated — agents only see scalar reward):
-  ┌─────────────────────────────────────────────────────┐
-  │  Test Runner: git apply in-place → pytest → revert  │
-  │  Judge (claude-sonnet-4-6, different tier):         │
-  │    correctness, security, test_quality,             │
-  │    code_clarity, issue_alignment  →  0–1 score      │
-  │  Oracle: reward = tests(50%) + judge(35%)           │
-  │                          + preference(15%)          │
-  │  uncertainty = std_dev(signals)                     │
-  │  use_for_training = uncertainty < 0.25              │
-  └─────────────────────────────────────────────────────┘
-```
 
 ---
 
@@ -109,11 +54,17 @@ After each reviewer rejection, the coder reads the blocking comments and rewrite
 **Coder — cross-cycle (after each training batch):**
 `LEARNED_PATTERNS.md` is rebuilt from all traces each cycle. The coder literally reads its own failure categories with counts and the verbatim judge + reviewer reasoning from each failed trace. If "empty_diff" appeared 11 times, it says so — and shows the exact feedback so the coder understands *why* it was wrong, not just *that* it was wrong.
 
+<img width="381" height="206" alt="Screenshot 2026-05-04 at 3 53 34 PM" src="https://github.com/user-attachments/assets/5c73881f-f309-435c-bac6-2786558f1d78" />
+
+
 **Reviewer — reactive (mid-run, no cycle boundary needed):**
 The drift detector watches rolling windows of decisions. If it detects collapse (>70% round-1 approval rate) or adversarial strictness (>95% rejection rate), it writes a calibration note to `CALIBRATION.md` immediately — before the next issue runs.
 
 **Reviewer — cross-cycle (after each training batch):**
 `LEARNED_PATTERNS.md` is rebuilt from GT-confirmed vs GT-contradicted decisions. The reviewer sees which of its patterns the judge agreed with and which it got wrong, plus persona debate outcomes (which persona was right when they disagreed).
+
+<img width="376" height="216" alt="Screenshot 2026-05-04 at 3 54 00 PM" src="https://github.com/user-attachments/assets/f25545ea-8d71-4d11-936f-f3ce08588596" />
+
 
 The key distinction: the coder's intra-trace loop is about *responding to feedback in the moment*; both agents' cross-cycle loop is about *not repeating the same class of mistake across issues*.
 
