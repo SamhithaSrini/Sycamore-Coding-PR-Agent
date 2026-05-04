@@ -1,0 +1,17 @@
+[
+  {
+    "avg_final_reward": 0.8409400558840457,
+    "resolution_rate_le2_rounds": 1.0,
+    "avg_test_pass_rate": 1.0,
+    "reviewer_accuracy": 1.0,
+    "reward_hacking_rate": 0.0,
+    "training_data_efficiency": 0.0,
+    "reviewer_coder_alignment": null,
+    "avg_rounds_per_issue": 1.0,
+    "held_out_avg_reward": null,
+    "n_traces": 1,
+    "n_multi_round": 0,
+    "n_alignment_computed": 0,
+    "cycle": 1
+  }
+]

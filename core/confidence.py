@@ -7,7 +7,6 @@ def build_confidence_bundle(
     oracle,
     judge_result: dict,
     reviewer_result: dict,
-    lean_result: dict,
     test_result: dict,
     preference_score: float,
     round_alignment_scores: Optional[List[Optional[float]]] = None,
@@ -26,11 +25,6 @@ def build_confidence_bundle(
         test_pass_rate=test_result.get("pass_rate", 0.0),
         test_coverage_delta=test_result.get("coverage_delta", 0.0),
         tests_added=test_result.get("tests_added", 0),
-
-        lean_verified=lean_result.get("verified"),
-        lean_coverage=lean_result.get("coverage", 0.0),
-        lean_propositions_passed=lean_result.get("passed", 0),
-        lean_propositions_total=lean_result.get("total", 0),
 
         reviewer_confidence=reviewer_result.get("reviewer_confidence", 0.0),
         reviewer_consensus=reviewer_result.get("persona_consensus", 0.0),

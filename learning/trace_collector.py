@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, fields
 from typing import List, Optional
 from datetime import datetime
 import json
@@ -38,6 +38,7 @@ class ReviewAttempt:
     persona_consensus: float            # agreement across MoE personas 0-1
     timestamp: str
     self_critique: str = ""
+    persona_reviews: dict = field(default_factory=dict)
     # Populated after the NEXT pr_attempt arrives (None on final round)
     alignment_score: Optional[float] = None     # addressed_comments / total_meaningful_comments
     alignment_detail: Optional[dict] = None     # {"addressed": [...], "not_addressed": [...]}
@@ -45,7 +46,7 @@ class ReviewAttempt:
 
 @dataclass
 class ConfidenceBundle:
-    # LLM Judge (GPT-4o — different model family, cross-family independence)
+    # LLM Judge (independent evaluation model)
     judge_score: float
     judge_confidence: float
     judge_reasoning: str
@@ -56,12 +57,6 @@ class ConfidenceBundle:
     test_pass_rate: float
     test_coverage_delta: float
     tests_added: int
-
-    # Lean4 formal verification (ground truth)
-    lean_verified: Optional[bool]       # None = not applicable
-    lean_coverage: float
-    lean_propositions_passed: int
-    lean_propositions_total: int
 
     # Reviewer agent
     reviewer_confidence: float
@@ -90,7 +85,7 @@ class InteractionTrace:
     issue_title: str = ""
     issue_body: str = ""
     issue_labels: List[str] = field(default_factory=list)
-    repo: str = "sympy/sympy"
+    repo: str = "pallets/click"
 
     pr_attempts: List[PRAttempt] = field(default_factory=list)
     review_attempts: List[ReviewAttempt] = field(default_factory=list)
@@ -128,7 +123,13 @@ class InteractionTrace:
             r = dict(r)
             r["comments"] = comments
             review_attempts.append(ReviewAttempt(**r))
-        confidence = ConfidenceBundle(**data["confidence"]) if data.get("confidence") else None
+        confidence = None
+        if data.get("confidence"):
+            confidence_fields = {f.name for f in fields(ConfidenceBundle)}
+            confidence = ConfidenceBundle(**{
+                k: v for k, v in data["confidence"].items()
+                if k in confidence_fields
+            })
         final_pr = PRAttempt(**data["final_pr"]) if data.get("final_pr") else None
         return cls(
             **{k: v for k, v in data.items()
@@ -144,7 +145,7 @@ class InteractionTrace:
 class PreferencePair:
     pair_id: str
     issue_id: str
-    source: str                     # "git_history" | "trace_comparison" | "lean_grounded"
+    source: str                     # "git_history" | "trace_comparison"
     chosen_diff: str
     chosen_reward: float
     chosen_reasoning: str
@@ -154,6 +155,4 @@ class PreferencePair:
     confidence: float
     test_pass_delta: float
     judge_score_delta: float
-    lean_verified_chosen: Optional[bool]
-    lean_verified_rejected: Optional[bool]
     reward_source_weights: dict

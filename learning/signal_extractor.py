@@ -31,17 +31,21 @@ def extract_training_signals(traces: list) -> dict:
 
     for trace in traces:
         t = trace if isinstance(trace, dict) else trace.to_dict()
+        if t.get("is_held_out"):
+            continue
         cb = t.get("confidence") or {}
         if not cb:
             continue
 
         final_reward = cb.get("final_reward", 0.0)
         use_for_training = cb.get("use_for_training", False)
+        reward_hacking = cb.get("reward_hacking_detected", False)
         alignment = cb.get("reviewer_coder_alignment")  # None if single-round
         alignment_interp = cb.get("alignment_interpretation", "single_round")
         gt_good = cb.get("test_pass_rate", 0.0) > 0.8 and final_reward > 0.7
         reviewer_approved = t.get("final_decision") == "approved"
         final_pr = t.get("final_pr") or {}
+        patch_stats = _patch_stats(final_pr.get("diff", ""))
 
         # ── Alignment-aware signal routing ──────────────────────────
         if alignment is not None and use_for_training:
@@ -66,13 +70,13 @@ def extract_training_signals(traces: list) -> dict:
                 reviewer_negative.append({
                     **_make_reviewer_example(t, "gt_good_but_low_alignment"),
                     "reason": "low_alignment_with_good_outcome: reviewer comments were not actionable",
+                    "gt_assessment": "good",
                 })
 
             elif low_align and not gt_good:
                 # Coder ignored valid feedback
                 coder_negative.append({
-                    "issue": t.get("issue_body", ""),
-                    "diff": final_pr.get("diff", ""),
+                    **_make_coder_example(t, final_pr, final_reward, "low_alignment_gt_bad"),
                     "reward": final_reward,
                     "reason": "ignored_reviewer_feedback",
                 })
@@ -83,21 +87,23 @@ def extract_training_signals(traces: list) -> dict:
                 reviewer_negative.append({
                     **_make_reviewer_example(t, "high_alignment_but_bad_outcome"),
                     "reason": "reviewer_feedback_was_wrong: coder followed it but GT failed",
+                    "gt_assessment": "bad",
                 })
 
         else:
             # Single round or alignment not computed — use reward-only routing
             if use_for_training and final_reward > 0.75:
                 coder_positive.append(_make_coder_example(t, final_pr, final_reward, "high_reward"))
-            elif cb.get("reward_hacking_detected") or final_reward < 0.3:
+            elif reward_hacking or final_reward < 0.3:
                 coder_negative.append({
-                    "issue": t.get("issue_body", ""),
-                    "diff": final_pr.get("diff", ""),
+                    **_make_coder_example(t, final_pr, final_reward, "negative_outcome"),
                     "reward": final_reward,
-                    "reason": "reward_hacking" if cb.get("reward_hacking_detected") else "low_quality",
+                    "reason": _coder_failure_reason(reward_hacking, final_reward, patch_stats),
                 })
 
-            if reviewer_approved == gt_good and use_for_training:
+            # Reviewer learns from grounded outcomes even when the coder output is not
+            # trainable, because catching a bad/reward-hacked PR is a positive review signal.
+            if reviewer_approved == gt_good:
                 reviewer_positive.append(_make_reviewer_example(t, "gt_confirmed"))
             elif reviewer_approved != gt_good:
                 reviewer_negative.append({
@@ -123,6 +129,8 @@ def extract_training_signals(traces: list) -> dict:
                     "gt_correct": gt_good,
                     "correct_decision": "approve" if gt_good else "request_changes",
                     "which_persona_was_right": _correct_persona(decisions, gt_good),
+                    "correct_personas": _personas_matching(decisions, gt_good),
+                    "wrong_personas": _personas_not_matching(decisions, gt_good),
                     "alignment_score": review.get("alignment_score"),
                 })
 
@@ -154,16 +162,35 @@ def extract_training_signals(traces: list) -> dict:
 
 
 def _make_coder_example(trace: dict, final_pr: dict, reward: float, source: str) -> dict:
+    stats = _patch_stats(final_pr.get("diff", ""))
+    confidence = trace.get("confidence") or {}
     return {
         "issue": trace.get("issue_body", ""),
         "issue_title": trace.get("issue_title", ""),
         "diff": final_pr.get("diff", ""),
         "description": final_pr.get("description", ""),
         "reward": reward,
-        "judge_score": (trace.get("confidence") or {}).get("judge_score", reward),
+        "judge_score": confidence.get("judge_score", reward),
+        "test_pass_rate": confidence.get("test_pass_rate"),
+        "judge_reasoning": confidence.get("judge_reasoning", ""),
+        "review_feedback": _summarize_review_feedback(trace),
         "rounds_needed": trace.get("total_rounds", 1),
         "source": source,
+        **stats,
     }
+
+
+def _summarize_review_feedback(trace: dict, max_comments: int = 4) -> list:
+    comments = []
+    for review in trace.get("review_attempts", []):
+        for comment in review.get("comments", []):
+            severity = comment.get("severity", "suggestion")
+            content = " ".join(comment.get("content", "").split())
+            if content:
+                comments.append(f"{severity}: {content}")
+            if len(comments) >= max_comments:
+                return comments
+    return comments
 
 
 def _make_reviewer_example(trace: dict, source: str) -> dict:
@@ -175,6 +202,7 @@ def _make_reviewer_example(trace: dict, source: str) -> dict:
         "comments": last_review.get("comments", []),
         "gt_confirmed": source in ("gt_confirmed", "gt_confirmed_high_alignment", "high_alignment_gt_good"),
         "source": source,
+        "persona_reviews": last_review.get("persona_reviews", {}),
     }
 
 
@@ -186,15 +214,76 @@ def _correct_persona(decisions: dict, gt_good: bool) -> str:
     return "none"
 
 
+def _personas_matching(decisions: dict, gt_good: bool) -> list:
+    correct = "approve" if gt_good else "request_changes"
+    return [persona for persona, decision in decisions.items() if decision == correct]
+
+
+def _personas_not_matching(decisions: dict, gt_good: bool) -> list:
+    correct = "approve" if gt_good else "request_changes"
+    return [persona for persona, decision in decisions.items() if decision != correct]
+
+
+def _patch_stats(diff: str) -> dict:
+    files = []
+    for line in diff.splitlines():
+        if line.startswith("+++ b/"):
+            files.append(line.removeprefix("+++ b/"))
+    source_files = [f for f in files if f.startswith("src/") and f.endswith(".py")]
+    test_files = [f for f in files if f.startswith("tests/") and f.endswith(".py")]
+    return {
+        "changed_files": files,
+        "source_files": source_files,
+        "test_files": test_files,
+        "has_source_changes": bool(source_files),
+        "has_test_changes": bool(test_files),
+        "is_test_only": bool(test_files) and not source_files,
+        "is_empty_diff": not diff.strip(),
+    }
+
+
+def _coder_failure_reason(reward_hacking: bool, final_reward: float, patch_stats: dict) -> str:
+    if patch_stats["is_empty_diff"]:
+        return "empty_diff"
+    if patch_stats["is_test_only"]:
+        return "test_only_patch"
+    if reward_hacking:
+        return "reward_hacking"
+    if not patch_stats["has_source_changes"]:
+        return "no_source_change"
+    if final_reward < 0.3:
+        return "low_quality"
+    return "negative_outcome"
+
+
 def load_all_traces() -> list:
     traces = []
     traces_dir = Path("data/traces")
     if not traces_dir.exists():
         return traces
+    active_issue_ids = _active_training_issue_ids()
     for path in traces_dir.glob("*.json"):
         try:
             data = json.loads(path.read_text())
+            if data.get("is_held_out"):
+                continue
+            if active_issue_ids and str(data.get("issue_id", "")) not in active_issue_ids:
+                continue
             traces.append(data)
         except Exception as e:
             print(f"  Warning: could not load trace {path}: {e}")
     return traces
+
+
+def _active_training_issue_ids() -> set:
+    issues_dir = Path("data/issues")
+    if not issues_dir.exists():
+        return set()
+    ids = set()
+    for path in issues_dir.glob("*.json"):
+        try:
+            issue = json.loads(path.read_text())
+            ids.add(str(issue.get("id", "")))
+        except Exception:
+            continue
+    return ids

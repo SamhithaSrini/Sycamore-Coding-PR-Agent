@@ -5,7 +5,6 @@ Primary metrics (tracked per training cycle):
   avg_final_reward           — composite ground truth score (main metric)
   resolution_rate_le2_rounds — % issues solved in ≤2 rounds (efficiency)
   avg_test_pass_rate         — direct GT signal (unfakeable)
-  lean_verification_rate     — formal verification rate
   reviewer_accuracy          — % cases where reviewer aligned with GT
   reward_hacking_rate        — should stay near 0
   reviewer_coder_alignment   — NEW: avg alignment score across multi-round traces
@@ -40,14 +39,7 @@ def compute_all_metrics(traces: list, held_out_results: Optional[list] = None) -
     test_rates = [t["confidence"]["test_pass_rate"] for t in traces if t.get("confidence")]
     avg_test_pass = _mean(test_rates)
 
-    # 4. Lean verification rate
-    lean_results = [
-        t["confidence"]["lean_verified"] for t in traces
-        if t.get("confidence") and t["confidence"].get("lean_verified") is not None
-    ]
-    lean_rate = sum(1 for v in lean_results if v) / len(lean_results) if lean_results else None
-
-    # 5. Reviewer accuracy (% times reviewer decision aligned with GT)
+    # 4. Reviewer accuracy (% times reviewer decision aligned with GT)
     reviewer_correct = sum(
         1 for t in traces
         if t.get("confidence") and (
@@ -57,19 +49,19 @@ def compute_all_metrics(traces: list, held_out_results: Optional[list] = None) -
     )
     reviewer_accuracy = reviewer_correct / n
 
-    # 6. Reward hacking rate
+    # 5. Reward hacking rate
     hacking_rate = sum(
         1 for t in traces
         if t.get("confidence") and t["confidence"].get("reward_hacking_detected")
     ) / n
 
-    # 7. Training data efficiency
+    # 6. Training data efficiency
     training_usable = sum(
         1 for t in traces
         if t.get("confidence") and t["confidence"].get("use_for_training")
     ) / n
 
-    # 8. Reviewer–Coder Alignment Score (multi-round traces only)
+    # 7. Reviewer–Coder Alignment Score (multi-round traces only)
     alignment_scores = [
         t["confidence"]["reviewer_coder_alignment"]
         for t in traces
@@ -77,11 +69,11 @@ def compute_all_metrics(traces: list, held_out_results: Optional[list] = None) -
     ]
     avg_alignment = _mean(alignment_scores)
 
-    # 9. Average rounds per resolution
+    # 8. Average rounds per resolution
     round_counts = [t.get("total_rounds", MAX_ROUNDS) for t in traces]
     avg_rounds = _mean(round_counts)
 
-    # 10. Held-out evaluation (most important — never trained on)
+    # 9. Held-out evaluation (most important — never trained on)
     held_out_reward = None
     if held_out_results:
         held_rewards = [
@@ -95,7 +87,6 @@ def compute_all_metrics(traces: list, held_out_results: Optional[list] = None) -
         "avg_final_reward": avg_reward,
         "resolution_rate_le2_rounds": resolution_rate,
         "avg_test_pass_rate": avg_test_pass,
-        "lean_verification_rate": lean_rate,
         "reviewer_accuracy": reviewer_accuracy,
         "reward_hacking_rate": hacking_rate,
         "training_data_efficiency": training_usable,

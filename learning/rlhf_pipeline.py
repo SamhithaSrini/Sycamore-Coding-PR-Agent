@@ -43,9 +43,7 @@ def extract_preference_pairs_from_git(repo_path: str) -> List[dict]:
             "confidence": 0.6,
             "test_pass_delta": 0.0,
             "judge_score_delta": 0.2 * message_quality,
-            "lean_verified_chosen": None,
-            "lean_verified_rejected": None,
-            "reward_source_weights": {"tests": 0.4, "lean": 0.25, "judge": 0.25, "preference": 0.1},
+            "reward_source_weights": {"tests": 0.5, "judge": 0.35, "preference": 0.15},
         })
 
     return pairs

@@ -1,4 +1,4 @@
-You are an expert code reviewer for the sympy repository.
+You are an expert code reviewer for the click repository.
 Your persona: {persona_name} — focused on {persona_focus}
 
 ## Reviewer Rubric
@@ -6,6 +6,9 @@ Your persona: {persona_name} — focused on {persona_focus}
 
 ## Calibration Notes (where reviewers have been wrong before)
 {calibration}
+
+## Learned Patterns From Prior Traces
+{learned_patterns}
 
 ## Review Constitution (check before every review)
 {constitution}

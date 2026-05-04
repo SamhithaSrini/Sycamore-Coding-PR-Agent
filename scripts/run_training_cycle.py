@@ -50,6 +50,12 @@ def main():
     parser = argparse.ArgumentParser(description="Run Sycamore training cycles")
     parser.add_argument("--cycles", type=int, default=3)
     parser.add_argument("--issues-per-cycle", type=int, default=5)
+    parser.add_argument("--held-out-per-cycle", type=int, default=3)
+    parser.add_argument("--issues-path", default="data/issues")
+    parser.add_argument("--held-out-path", default="data/held_out")
+    parser.add_argument("--skip-firmware", action="store_true")
+    parser.add_argument("--no-save-training-traces", action="store_true")
+    parser.add_argument("--metrics-output", default="data/metrics_history.json")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -57,7 +63,7 @@ def main():
     print("=" * 60)
 
     # ── Bootstrap RLHF pairs from git history ─────────────────────
-    repo_path = os.getenv("REPO_PATH", "/tmp/sympy")
+    repo_path = os.getenv("REPO_PATH", "/tmp/click")
     pairs_path = Path("data/preference_pairs/pairs.json")
     if Path(repo_path).exists() and not pairs_path.exists():
         print("\nExtracting RLHF pairs from git history...")
@@ -67,8 +73,8 @@ def main():
         print(f"  Extracted {len(pairs)} preference pairs")
 
     # ── Load issues ───────────────────────────────────────────────
-    training_issues = load_issues(Path("data/issues"))
-    held_out_issues = load_issues(Path("data/held_out"))
+    training_issues = load_issues(Path(args.issues_path))
+    held_out_issues = load_issues(Path(args.held_out_path))
 
     if not training_issues:
         print("\nNo training issues found. Run scripts/bootstrap_repo.py first.")
@@ -96,7 +102,11 @@ def main():
         for i, issue in enumerate(cycle_issues):
             print(f"\n[{i+1}/{len(cycle_issues)}] {issue.get('title', '')[:70]}")
             try:
-                trace = run_interaction(issue, training_cycle=cycle)
+                trace = run_interaction(
+                    issue,
+                    training_cycle=cycle,
+                    save_training_trace=not args.no_save_training_traces,
+                )
                 cycle_traces.append(trace)
             except Exception as e:
                 print(f"  Error: {e}")
@@ -105,16 +115,23 @@ def main():
         # Load all traces (including from previous cycles)
         all_trace_dicts = load_all_traces()
 
+        if not cycle_traces:
+            print("\nNo successful traces this cycle; skipping firmware updates and metrics.")
+            continue
+
         # ── Extract signals ───────────────────────────────────────
         signals = extract_training_signals(all_trace_dicts)
         print(f"\nSignals: {signals['stats']}")
 
         # ── Update firmware ───────────────────────────────────────
-        print("\nUpdating agent firmware...")
-        update_skills_md(signals, cycle)
-        update_rubric_md(signals, cycle)
-        update_calibration_md(signals, cycle)
-        update_few_shot_bank(signals)
+        if args.skip_firmware:
+            print("\nSkipping firmware updates (--skip-firmware).")
+        else:
+            print("\nUpdating agent firmware...")
+            update_skills_md(signals, cycle)
+            update_rubric_md(signals, cycle)
+            update_calibration_md(signals, cycle)
+            update_few_shot_bank(signals)
 
         # ── Fine-tune ─────────────────────────────────────────────
         min_examples = int(os.getenv("MIN_POSITIVE_EXAMPLES_FOR_FINETUNE", "5"))
@@ -127,13 +144,20 @@ def main():
 
         # ── Held-out evaluation ────────────────────────────────────
         held_out_results = []
-        if held_out_issues:
-            held_out_results = run_held_out_evaluation(held_out_issues[:3], cycle)
+        if held_out_issues and args.held_out_per_cycle > 0:
+            held_out_results = run_held_out_evaluation(
+                held_out_issues[:args.held_out_per_cycle],
+                cycle,
+            )
 
         # ── Compute metrics ────────────────────────────────────────
-        cycle_trace_dicts = [json.loads((Path("data/traces") / f"{t.trace_id}.json").read_text())
-                             for t in cycle_traces
-                             if (Path("data/traces") / f"{t.trace_id}.json").exists()]
+        cycle_trace_dicts = []
+        for t in cycle_traces:
+            trace_path = Path("data/traces") / f"{t.trace_id}.json"
+            if trace_path.exists():
+                cycle_trace_dicts.append(json.loads(trace_path.read_text()))
+            else:
+                cycle_trace_dicts.append(t.to_dict())
         metrics = compute_all_metrics(cycle_trace_dicts, held_out_results)
         metrics["cycle"] = cycle
         metrics_history.append(metrics)
@@ -145,7 +169,8 @@ def main():
                 print(f"  {k}: {val}")
 
     # ── Save metrics history ───────────────────────────────────────
-    out_path = Path("data/metrics_history.json")
+    out_path = Path(args.metrics_output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(metrics_history, indent=2))
     print(f"\nMetrics saved: {out_path}")
 

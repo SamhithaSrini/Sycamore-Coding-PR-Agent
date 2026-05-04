@@ -116,13 +116,15 @@ def review_pr(pr: dict, issue: dict, model: str = None) -> dict:
     model = model or os.getenv("REVIEWER_MODEL", "claude-haiku-4-5-20251001")
     rubric = _read(AGENT_DIR / "RUBRIC.md")
     calibration = _read(AGENT_DIR / "CALIBRATION.md")
+    learned_patterns = _read(AGENT_DIR / "LEARNED_PATTERNS.md")
     constitution = _read(AGENT_DIR / "CONSTITUTION.md")
     coder_patterns = _load_recent_coder_patterns()
 
     persona_reviews = {}
     for name, config in PERSONAS.items():
         persona_reviews[name] = _run_persona_review(
-            name, config, pr, issue, rubric, calibration, constitution, coder_patterns, model
+            name, config, pr, issue, rubric, calibration,
+            learned_patterns, constitution, coder_patterns, model
         )
 
     synthesized = _synthesize_reviews(persona_reviews)
@@ -145,7 +147,7 @@ def review_pr(pr: dict, issue: dict, model: str = None) -> dict:
 
 def _run_persona_review(
     persona_name, persona_config, pr, issue, rubric, calibration,
-    constitution, coder_patterns, model
+    learned_patterns, constitution, coder_patterns, model
 ) -> dict:
     system = f"""You are a specialized code reviewer focused on: {persona_config['focus']}
 
@@ -154,6 +156,9 @@ def _run_persona_review(
 
 ## Calibration Notes
 {calibration}
+
+## Learned Patterns From Prior Traces
+{learned_patterns}
 
 ## Review Constitution
 {constitution}

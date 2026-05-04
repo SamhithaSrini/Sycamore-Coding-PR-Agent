@@ -1,6 +1,6 @@
 """
 Integration smoke tests for the interaction loop.
-These use real API calls — run with a valid OPENAI_API_KEY.
+These use real API calls — run with a valid ANTHROPIC_API_KEY.
 Set SKIP_API_TESTS=1 to skip tests requiring API calls.
 """
 
@@ -32,8 +32,8 @@ def test_pre_review_checks_detects_security_issue():
 
 
 def test_pre_review_checks_passes_clean_diff():
-    diff = """--- a/sympy/core/utils.py
-+++ b/sympy/core/utils.py
+    diff = """--- a/src/click/utils.py
++++ b/src/click/utils.py
 @@ -10,3 +10,7 @@
  def my_func(x):
 -    return x

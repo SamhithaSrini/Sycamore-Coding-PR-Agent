@@ -1,8 +1,0 @@
-{
-  "id": "3154",
-  "title": "Click 9.0",
-  "body": "Theme: reduce overhead and actually fix hacks that we had to make to patch bugs \n\nTentative Guidelines: \n- Deprecate pretty freely as we won't remove deprecations until 10.0. \n- make sure to add guidance to the upgrade guide",
-  "labels": [],
-  "url": "https://github.com/pallets/click/issues/3154",
-  "created_at": "2025-11-22T18:57:01Z"
-}

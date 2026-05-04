@@ -1,82 +1,34 @@
 """
-Prompt Updater — updates agent firmware (.md files) after each training cycle.
-Creates a human-readable audit trail of what each agent learned.
+Prompt Updater — writes bounded, grounded learning memories after each cycle.
+
+The agents improve through deterministic firmware:
+  - coder few-shot examples from high-reward source-changing PRs
+  - coder failure rules from reward-hacked / low-reward traces
+  - reviewer calibration from decisions that agreed or disagreed with ground truth
+  - compact alignment notes for coder/reviewer co-optimization
 """
 
 import json
+from collections import Counter
 from pathlib import Path
-import anthropic
-
-_client = None
 
 
-def _get_client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        _client = anthropic.Anthropic()
-    return _client
-
-
-def _call(user: str) -> str:
-    response = _get_client().messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=2048,
-        messages=[{"role": "user", "content": user}],
-        temperature=0.2,
-    )
-    return response.content[0].text
+CODER_MEMORY = Path("agents/coder/LEARNED_PATTERNS.md")
+REVIEWER_MEMORY = Path("agents/reviewer/LEARNED_PATTERNS.md")
 
 
 def update_skills_md(signals: dict, training_cycle: int):
-    path = Path("agents/coder/SKILLS.md")
-    current = path.read_text() if path.exists() else ""
-    summary = _format_patterns(signals.get("coder_positive", []),
-                               signals.get("coder_negative", []),
-                               signals.get("alignment_signals", []))
-    if not summary.strip():
-        return
-
-    new_content = _call(f"""Current SKILLS.md:
-{current}
-
-New patterns from training cycle {training_cycle}:
-{summary}
-
-Update SKILLS.md to incorporate these learnings.
-Add a "## Cycle {training_cycle} Updates" section at the bottom.
-Add new skills from successful patterns, warnings about failure patterns.
-Keep it concise and actionable.
-Output only the updated SKILLS.md content.""")
-
-    path.write_text(new_content)
-    print(f"  SKILLS.md updated for cycle {training_cycle}")
+    """Update coder memory from grounded positive and negative traces."""
+    content = _build_coder_memory(signals, training_cycle)
+    CODER_MEMORY.write_text(content)
+    print(f"  Coder learned patterns updated: {CODER_MEMORY}")
 
 
 def update_rubric_md(signals: dict, training_cycle: int):
-    path = Path("agents/reviewer/RUBRIC.md")
-    current = path.read_text() if path.exists() else ""
-    wrong_cases = signals.get("reviewer_negative", [])
-    if not wrong_cases:
-        return
-
-    wrong_summary = "\n".join(
-        f"- Reviewer said '{c.get('reviewer_decision', '?')}', GT said '{c.get('gt_assessment', '?')}'. "
-        f"Reason: {c.get('reason', c.get('judge_reasoning', ''))[:200]}"
-        for c in wrong_cases[:5]
-    )
-
-    new_content = _call(f"""Current RUBRIC.md:
-{current}
-
-Cases where reviewer was wrong (cycle {training_cycle}):
-{wrong_summary}
-
-Update RUBRIC.md with a "## Cycle {training_cycle} Calibration" section.
-Focus on what the reviewer should do differently to avoid these mistakes.
-Output only the updated RUBRIC.md content.""")
-
-    path.write_text(new_content)
-    print(f"  RUBRIC.md updated for cycle {training_cycle}")
+    """Update reviewer memory from ground-truth confirmed review outcomes."""
+    content = _build_reviewer_memory(signals, training_cycle)
+    REVIEWER_MEMORY.write_text(content)
+    print(f"  Reviewer learned patterns updated: {REVIEWER_MEMORY}")
 
 
 def update_calibration_md(signals: dict, training_cycle: int):
@@ -92,13 +44,12 @@ def update_calibration_md(signals: dict, training_cycle: int):
     note = f"\n## Cycle {training_cycle} Auto-Calibration\n"
     if reviewer_fault:
         note += (f"- {len(reviewer_fault)} trace(s): low alignment but good outcome — "
-                 "reviewer comments were irrelevant or non-actionable. "
-                 "Focus on concrete, specific feedback.\n")
+                 "reviewer comments were likely irrelevant or non-actionable.\n")
     if coder_fault:
         note += (f"- {len(coder_fault)} trace(s): low alignment and bad outcome — "
-                 "coder ignored reviewer feedback. Make blocking issues unambiguous.\n")
+                 "coder likely ignored valid feedback; reviewer should make blocking changes explicit.\n")
 
-    path.write_text(current + note)
+    path.write_text(_compact_calibration(current + note))
     print(f"  CALIBRATION.md updated for cycle {training_cycle}")
 
 
@@ -114,14 +65,139 @@ def update_few_shot_bank(signals: dict, max_examples: int = 20):
             "description": ex.get("description", ""),
             "judge_score": ex["reward"],
             "rounds_needed": ex.get("rounds_needed", 1),
+            "source_files": ex.get("source_files", []),
+            "test_files": ex.get("test_files", []),
         }
         for ex in signals.get("coder_positive", [])
-        if ex.get("diff")
+        if ex.get("diff") and ex.get("has_source_changes") and not ex.get("is_test_only")
     ]
 
-    top = sorted(existing + new_examples, key=lambda x: x.get("judge_score", 0), reverse=True)[:max_examples]
+    deduped = {}
+    for ex in existing + new_examples:
+        key = (ex.get("issue_title", ""), ex.get("diff", "")[:500])
+        if key not in deduped or ex.get("judge_score", 0) > deduped[key].get("judge_score", 0):
+            deduped[key] = ex
+
+    top = sorted(deduped.values(), key=lambda x: x.get("judge_score", 0), reverse=True)[:max_examples]
     bank_path.write_text(json.dumps(top, indent=2))
     print(f"  Few-shot bank: {len(top)} examples")
+
+
+def _build_coder_memory(signals: dict, training_cycle: int, max_items: int = 6) -> str:
+    positives = [
+        ex for ex in signals.get("coder_positive", [])
+        if ex.get("has_source_changes") and not ex.get("is_test_only")
+    ]
+    negatives = signals.get("coder_negative", [])
+    reason_counts = Counter(ex.get("reason", "unknown") for ex in negatives)
+
+    lines = [
+        "# Coder Learned Patterns",
+        "",
+        f"Updated through cycle {training_cycle}. These rules come only from training traces, never held-out traces.",
+        "",
+        "## Current Failure Rules",
+    ]
+
+    if reason_counts:
+        for reason, count in reason_counts.most_common(max_items):
+            lines.append(f"- {reason}: observed {count} time(s). {_coder_rule_for_reason(reason)}")
+    else:
+        lines.append("- No grounded failure patterns yet.")
+
+    lines.extend(["", "## Successful Patch Patterns"])
+    if positives:
+        for ex in sorted(positives, key=lambda item: item.get("reward", 0), reverse=True)[:max_items]:
+            files = ", ".join(ex.get("source_files", [])[:3]) or "source file"
+            tests = ", ".join(ex.get("test_files", [])[:2]) or "no test file recorded"
+            lines.append(
+                f"- reward={ex.get('reward', 0):.2f}; issue={_clip(ex.get('issue_title', 'unknown'), 90)}; "
+                f"source={files}; tests={tests}"
+            )
+    else:
+        lines.append("- No high-reward source-changing examples yet. Prefer source changes plus targeted tests.")
+
+    lines.extend(["", "## Recent Mistakes To Learn From"])
+    if negatives:
+        for ex in negatives[:max_items]:
+            lines.append(f"- issue={_clip(ex.get('issue_title', 'unknown'), 80)}")
+            lines.append(f"  mistake={ex.get('reason', 'unknown')}: {_coder_rule_for_reason(ex.get('reason', 'unknown'))}")
+            if ex.get("review_feedback"):
+                lines.append(f"  reviewer_feedback={_clip('; '.join(ex['review_feedback']), 180)}")
+            if ex.get("judge_reasoning"):
+                lines.append(f"  judge_summary={_clip(ex.get('judge_reasoning', ''), 180)}")
+            files = ", ".join(ex.get("source_files", [])[:3])
+            if files:
+                lines.append(f"  touched_source={files}")
+    else:
+        lines.append("- No grounded mistakes yet.")
+
+    lines.extend([
+        "",
+        "## Non-Negotiable Submission Gate",
+        "- Produce at least one source-code change for coding issues; test-only patches are failures.",
+        "- Add or update tests only to verify a real implementation change.",
+        "- Do not submit an empty diff, a description-only fix, or a patch that weakens/removes existing tests.",
+        "- Use exact <change><file>/<old>/<new> blocks copied from provided source context.",
+        "- Failure reasons from prior cycles are visible here on purpose; correct them in the next attempt.",
+    ])
+    return "\n".join(lines) + "\n"
+
+
+def _build_reviewer_memory(signals: dict, training_cycle: int, max_items: int = 6) -> str:
+    positives = signals.get("reviewer_positive", [])
+    negatives = signals.get("reviewer_negative", [])
+    debates = signals.get("debate_signals", [])
+    negative_reasons = Counter(
+        ex.get("reason") or ex.get("judge_reasoning", "gt disagreement")[:80]
+        for ex in negatives
+    )
+
+    lines = [
+        "# Reviewer Learned Patterns",
+        "",
+        f"Updated through cycle {training_cycle}. Use these as calibration memory, not as replacements for the rubric.",
+        "",
+        "## Grounded Calibration",
+    ]
+
+    lines.append(f"- Ground-truth confirmed review decisions: {len(positives)}.")
+    lines.append(f"- Ground-truth contradicted review decisions/comments: {len(negatives)}.")
+    for reason, count in negative_reasons.most_common(max_items):
+        lines.append(f"- Watch for: {_clip(reason, 140)} ({count} case(s)).")
+
+    lines.extend(["", "## Persona Debate Lessons"])
+    if debates:
+        for debate in debates[:max_items]:
+            correct = ", ".join(debate.get("correct_personas", [])) or "none"
+            wrong = ", ".join(debate.get("wrong_personas", [])) or "none"
+            lines.append(
+                f"- correct_decision={debate.get('correct_decision')}; "
+                f"right_personas={correct}; wrong_personas={wrong}"
+            )
+    else:
+        lines.append("- No persona disagreement with ground-truth resolution recorded yet.")
+
+    lines.extend([
+        "",
+        "## Review Gate",
+        "- Request changes for empty diffs, test-only patches, removed tests, or descriptions without implementation.",
+        "- Approve only when the diff changes the relevant source behavior and tests meaningfully verify it.",
+        "- If personas disagree, prefer the persona whose decision matches tests/judge-grounded outcomes in recent traces.",
+    ])
+    return "\n".join(lines) + "\n"
+
+
+def _coder_rule_for_reason(reason: str) -> str:
+    rules = {
+        "empty_diff": "Always include concrete source changes; a description is not a PR.",
+        "test_only_patch": "Do not alter tests without implementing the source fix.",
+        "reward_hacking": "Optimize for real behavior and tests, not reviewer-satisfying prose.",
+        "no_source_change": "Coding issues require source-code changes unless the issue is explicitly test-only.",
+        "ignored_reviewer_feedback": "When revising, address each blocking comment directly.",
+        "low_quality": "Reproduce the failure, make the smallest source change, and verify with tests.",
+    }
+    return rules.get(reason, "Inspect the failed trace before repeating this pattern.")
 
 
 def _format_patterns(pos: list, neg: list, align: list) -> str:
@@ -139,3 +215,58 @@ def _format_patterns(pos: list, neg: list, align: list) -> str:
         low = sum(1 for s in align if s["interpretation"] == "low")
         lines.append(f"\nAlignment: {high} high, {low} low out of {len(align)} multi-round traces")
     return "\n".join(lines)
+
+
+def _compact_calibration(content: str, max_auto_notes: int = 8) -> str:
+    """Keep the reviewer memory bounded so repeated drift notes do not drown out signal."""
+    sections = []
+    current_header = None
+    current_lines = []
+    for line in content.splitlines():
+        if line.startswith("## ") and current_header is not None:
+            sections.append((current_header, "\n".join(current_lines).strip()))
+            current_header = line
+            current_lines = []
+        elif line.startswith("## "):
+            current_header = line
+            current_lines = []
+        elif current_header is None:
+            sections.append((None, line))
+        else:
+            current_lines.append(line)
+    if current_header is not None:
+        sections.append((current_header, "\n".join(current_lines).strip()))
+
+    intro = [body for header, body in sections if header is None and body.strip()]
+    stable = [
+        (header, body) for header, body in sections
+        if header and "Auto-Calibration" not in header and header != "## AUTO-RECALIBRATION"
+    ]
+    auto = [
+        (header, body) for header, body in sections
+        if header and ("Auto-Calibration" in header or header == "## AUTO-RECALIBRATION")
+    ]
+
+    deduped_auto = []
+    seen = set()
+    for header, body in reversed(auto):
+        key = (header, body)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_auto.append((header, body))
+        if len(deduped_auto) >= max_auto_notes:
+            break
+    deduped_auto.reverse()
+
+    parts = [line for line in intro if line.strip()]
+    for header, body in stable + deduped_auto:
+        parts.append(header)
+        if body:
+            parts.append(body)
+    return "\n\n".join(parts).strip() + "\n"
+
+
+def _clip(text: str, limit: int) -> str:
+    text = " ".join((text or "").split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."

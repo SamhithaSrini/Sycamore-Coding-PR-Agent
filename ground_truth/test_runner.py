@@ -12,6 +12,7 @@ import tempfile
 from pathlib import Path
 
 REPO_PATH = Path(os.getenv("REPO_PATH", "/tmp/click"))
+TEST_PATH = os.getenv("TEST_PATH", os.getenv("TEST_DIR", "tests/"))
 PYTEST_TIMEOUT = 60
 
 
@@ -29,12 +30,18 @@ def run_tests(diff: str) -> dict:
         apply_ok, apply_err = _apply_diff_inplace(diff, REPO_PATH)
         if not apply_ok:
             print(f"    Patch failed: {apply_err}")
+            subprocess.run(["git", "checkout", "."],
+                           cwd=REPO_PATH, capture_output=True, timeout=15)
+            subprocess.run(["git", "clean", "-fd"],
+                           cwd=REPO_PATH, capture_output=True, timeout=15)
             return {"pass_rate": 0.0, "coverage_delta": 0.0, "tests_added": 0, "error": apply_err}
 
         try:
             result = _run_pytest(REPO_PATH)
         finally:
             subprocess.run(["git", "checkout", "."],
+                           cwd=REPO_PATH, capture_output=True, timeout=15)
+            subprocess.run(["git", "clean", "-fd"],
                            cwd=REPO_PATH, capture_output=True, timeout=15)
 
         print(f"    Tests: {result['total_tests']} total, pass_rate={result['pass_rate']:.2f}")
@@ -46,6 +53,8 @@ def run_tests(diff: str) -> dict:
         }
     except Exception as e:
         subprocess.run(["git", "checkout", "."], cwd=REPO_PATH,
+                       capture_output=True, timeout=15)
+        subprocess.run(["git", "clean", "-fd"], cwd=REPO_PATH,
                        capture_output=True, timeout=15)
         return {"pass_rate": 0.0, "coverage_delta": 0.0, "tests_added": 0, "error": str(e)}
 
@@ -85,7 +94,7 @@ def _run_pytest(repo: Path) -> dict:
     report_file = Path(tempfile.mktemp(suffix="_pytest_report.json"))
     cmd = [
         "python3", "-m", "pytest",
-        "tests/",
+        os.getenv("TEST_PATH", TEST_PATH),
         "--tb=no", "-q",
         f"--json-report", f"--json-report-file={report_file}",
         "--timeout=15",

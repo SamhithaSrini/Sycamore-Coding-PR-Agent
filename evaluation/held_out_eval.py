@@ -23,7 +23,11 @@ def run_held_out_evaluation(issues: List[dict], training_cycle: int) -> List[dic
     for i, issue in enumerate(issues):
         print(f"    [{i+1}/{len(issues)}] {issue.get('title', '')[:60]}")
         try:
-            trace = run_interaction(issue, training_cycle=training_cycle)
+            trace = run_interaction(
+                issue,
+                training_cycle=training_cycle,
+                save_training_trace=False,
+            )
             trace_dict = json.loads(trace.to_json())
             trace_dict["is_held_out"] = True
             results.append(trace_dict)

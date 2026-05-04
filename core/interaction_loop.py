@@ -24,7 +24,6 @@ from core.judge_agent import judge_pr
 from core.confidence import build_confidence_bundle
 from ground_truth.oracle import compute_oracle_reward
 from ground_truth.test_runner import run_tests
-from ground_truth.lean_verifier import verify_with_lean
 from hooks.post_pr import run_pre_review_checks
 from hooks.drift_detector import check_reviewer_drift, record_reviewer_gt_disagreement
 from learning.trace_collector import (
@@ -36,7 +35,11 @@ from learning.rlhf_pipeline import score_preference
 MAX_ROUNDS = int(os.getenv("MAX_ROUNDS", "4"))
 
 
-def run_interaction(issue: dict, training_cycle: int = 0) -> InteractionTrace:
+def run_interaction(
+    issue: dict,
+    training_cycle: int = 0,
+    save_training_trace: bool = True,
+) -> InteractionTrace:
     """
     Full interaction loop for a single issue.
     Returns a complete InteractionTrace with confidence bundle.
@@ -46,9 +49,10 @@ def run_interaction(issue: dict, training_cycle: int = 0) -> InteractionTrace:
         issue_title=issue.get("title", ""),
         issue_body=issue.get("body", ""),
         issue_labels=issue.get("labels", []),
+        repo=os.getenv("GITHUB_REPO", os.getenv("PROJECT_NAME", "pallets/click")),
         training_cycle=training_cycle,
-        coder_model_version=os.getenv("CODER_MODEL", "gpt-4o-mini"),
-        reviewer_model_version=os.getenv("REVIEWER_MODEL", "gpt-4o-mini"),
+        coder_model_version=os.getenv("CODER_MODEL", "claude-haiku-4-5-20251001"),
+        reviewer_model_version=os.getenv("REVIEWER_MODEL", "claude-haiku-4-5-20251001"),
     )
 
     current_diff = None
@@ -135,6 +139,7 @@ def run_interaction(issue: dict, training_cycle: int = 0) -> InteractionTrace:
             persona_consensus=review_result.get("persona_consensus", 1.0),
             timestamp=datetime.utcnow().isoformat(),
             self_critique=review_result.get("self_critique", ""),
+            persona_reviews=review_result.get("persona_reviews", {}),
         )
         trace.review_attempts.append(review_attempt)
         last_review = review_result
@@ -169,14 +174,9 @@ def run_interaction(issue: dict, training_cycle: int = 0) -> InteractionTrace:
             print(f"    Judge: {judge_result.get('overall_score', 0):.2f} "
                   f"(confidence: {judge_result.get('confidence', 0):.2f})")
 
-            lean_result = verify_with_lean(
-                diff=pr_result.get("diff", ""),
-                lean_propositions=judge_result.get("lean_propositions", []),
-            )
-
             preference_score = score_preference(pr_result.get("diff", ""), issue)
 
-            oracle = compute_oracle_reward(test_result, lean_result, judge_result, preference_score)
+            oracle = compute_oracle_reward(test_result, judge_result, preference_score)
             print(f"    Oracle: reward={oracle.final_reward:.3f}, "
                   f"uncertainty={oracle.reward_uncertainty:.3f}, "
                   f"use_for_training={oracle.use_for_training}")
@@ -190,17 +190,17 @@ def run_interaction(issue: dict, training_cycle: int = 0) -> InteractionTrace:
                 oracle=oracle,
                 judge_result=judge_result,
                 reviewer_result=review_result,
-                lean_result=lean_result,
                 test_result=test_result,
                 preference_score=preference_score,
                 round_alignment_scores=round_alignment_scores,
             )
 
             # ── Step 7: Save trace ────────────────────────────────
-            trace_path = Path("data/traces") / f"{trace.trace_id}.json"
-            trace_path.parent.mkdir(parents=True, exist_ok=True)
-            trace.save(str(trace_path))
-            print(f"  Trace saved: {trace_path.name}")
+            if save_training_trace:
+                trace_path = Path("data/traces") / f"{trace.trace_id}.json"
+                trace_path.parent.mkdir(parents=True, exist_ok=True)
+                trace.save(str(trace_path))
+                print(f"  Trace saved: {trace_path.name}")
 
             return trace
 

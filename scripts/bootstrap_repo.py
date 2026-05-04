@@ -69,11 +69,7 @@ def fetch_click_issues(n_training: int = 20, n_held_out: int = 5) -> tuple:
             body = issue.get("body", "") or ""
             if len(body) < 50:
                 continue
-            # Skip documentation/design/workflow issues — coder can't produce valid diffs
-            title_lower = issue["title"].lower()
-            skip_keywords = ["tutorial", "screenshot", "glossary", "document", "wip:", "design",
-                             "roadmap", "add screenshot", "introduction to", "high level"]
-            if any(kw in title_lower for kw in skip_keywords):
+            if not _is_coding_task(issue):
                 continue
             issues.append({
                 "id": str(issue["number"]),
@@ -97,6 +93,40 @@ def fetch_click_issues(n_training: int = 20, n_held_out: int = 5) -> tuple:
     held_out = issues[n_training: n_training + n_held_out]
     print(f"  {len(training)} training issues, {len(held_out)} held-out issues")
     return training, held_out
+
+
+def _is_coding_task(issue: dict) -> bool:
+    """Keep executable code tasks; skip docs, design discussions, and maintenance-only work."""
+    title = issue.get("title", "").lower()
+    body = (issue.get("body", "") or "").lower()
+    labels = {label.get("name", "").lower() for label in issue.get("labels", [])}
+    text = f"{title}\n{body}"
+
+    skip_labels = {"documentation", "docs", "question", "discussion", "wontfix"}
+    if labels & skip_labels:
+        return False
+
+    skip_keywords = [
+        "tutorial", "screenshot", "glossary", "document", "documentation",
+        "docs", "readme", "changelog", "roadmap", "design", "high level",
+        "proposal", "discussion", "website", "typo", "spelling",
+    ]
+    if any(keyword in title for keyword in skip_keywords):
+        return False
+
+    coding_labels = {"bug", "feature", "enhancement", "refactor", "regression"}
+    if labels & coding_labels:
+        return True
+
+    coding_keywords = [
+        "bug", "error", "exception", "traceback", "fails", "failure",
+        "regression", "expected", "actual", "support", "add option",
+        "implement", "refactor",
+    ]
+    code_markers = ["```", "traceback", "click.", "@click", "python", "pytest"]
+    return any(keyword in text for keyword in coding_keywords) and any(
+        marker in text for marker in code_markers
+    )
 
 
 def save_issues(issues: list, path: Path):
@@ -152,13 +182,13 @@ def main():
     save_issues(training_issues, ISSUES_PATH)
     save_issues(held_out_issues, HELD_OUT_PATH)
 
-    # Clear old traces from sympy runs
+    # Clear old traces from previous runs
     traces_dir = Path("data/traces")
     if traces_dir.exists():
         old = list(traces_dir.glob("*.json"))
         for f in old:
             f.unlink()
-        print(f"  Cleared {len(old)} old sympy traces")
+        print(f"  Cleared {len(old)} old traces")
 
     # Clear old metrics
     metrics = Path("data/metrics_history.json")

@@ -12,6 +12,7 @@ When collapse is detected, CALIBRATION.md is force-updated.
 
 from collections import deque
 from pathlib import Path
+from learning.prompt_updater import _compact_calibration
 
 # Rolling windows (in-process state — reset between runs)
 _round1_approval_window: deque = deque(maxlen=20)
@@ -98,5 +99,5 @@ def record_reviewer_gt_disagreement(reviewer_approved: bool, gt_good: bool):
 def _force_recalibration(message: str):
     path = Path("agents/reviewer/CALIBRATION.md")
     existing = path.read_text() if path.exists() else ""
-    path.write_text(existing + f"\n## AUTO-RECALIBRATION\n{message}\n")
+    path.write_text(_compact_calibration(existing + f"\n## AUTO-RECALIBRATION\n{message}\n"))
     print(f"  Drift detector: CALIBRATION.md updated")

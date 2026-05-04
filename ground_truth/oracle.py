@@ -3,16 +3,14 @@ Oracle — aggregates all ground truth signals into a scalar reward.
 
 CRITICAL: This module is NEVER imported by agents/ or core/.
 Only to_reward_signal() leaves this layer — agents never see raw test output,
-Lean proofs, or coverage numbers.
+judge scores, or coverage numbers.
 """
 
 from dataclasses import dataclass
-from typing import Optional
 import os
 
 REWARD_WEIGHTS = {
     "tests": 0.50,
-    "lean": 0.00,   # Lean4 binary not installed — weight redistributed to tests/judge
     "judge": 0.35,
     "preference": 0.15,
 }
@@ -26,10 +24,6 @@ class OracleResult:
     test_pass_rate: float
     test_coverage_delta: float
     tests_added: int
-    lean_verified: Optional[bool]
-    lean_coverage: float
-    lean_passed: int
-    lean_total: int
     judge_score: float
     judge_confidence: float
     judge_dimensions: dict
@@ -56,36 +50,30 @@ class OracleResult:
                 "fail" if self.test_pass_rate < 0.5 else
                 "partial"
             ),
-            "lean_signal": (
-                "verified" if self.lean_verified is True else
-                "unverified" if self.lean_verified is False else
-                "not_applicable"
-            ),
         }
 
 
 def compute_oracle_reward(
     test_result: dict,
-    lean_result: dict,
     judge_result: dict,
     preference_score: float,
 ) -> OracleResult:
     test_score = test_result.get("pass_rate", 0.0)
-    lean_verified = lean_result.get("verified")
-    lean_score = 1.0 if lean_verified is True else 0.0 if lean_verified is False else 0.5
-
     judge_score = judge_result.get("overall_score", 0.0)
+    test_error = test_result.get("error")
 
-    # Reward hacking detected → zero reward, not usable for training
-    if judge_result.get("reward_hacking_detected"):
+    # Invalid patches and reward hacking are never usable training examples, even
+    # if the judge misses the pathology or the uncertainty score looks low.
+    invalid_patch_errors = {"empty_diff", "patch_timeout"}
+    invalid_patch = (
+        test_error in invalid_patch_errors
+        or str(test_error or "").startswith("patch_failed")
+    )
+    if invalid_patch or judge_result.get("reward_hacking_detected"):
         return OracleResult(
             test_pass_rate=test_score,
             test_coverage_delta=test_result.get("coverage_delta", 0.0),
             tests_added=test_result.get("tests_added", 0),
-            lean_verified=lean_verified,
-            lean_coverage=lean_result.get("coverage", 0.0),
-            lean_passed=lean_result.get("passed", 0),
-            lean_total=lean_result.get("total", 0),
             judge_score=judge_score,
             judge_confidence=judge_result.get("confidence", 0.0),
             judge_dimensions=judge_result.get("dimensions", {}),
@@ -98,16 +86,12 @@ def compute_oracle_reward(
 
     final_reward = (
         REWARD_WEIGHTS["tests"] * test_score
-        + REWARD_WEIGHTS["lean"] * lean_score
         + REWARD_WEIGHTS["judge"] * judge_score
         + REWARD_WEIGHTS["preference"] * preference_score
     )
 
-    # Uncertainty = population std dev across active signal sources (lean excluded when binary absent)
-    active_signals = [test_score, judge_score, preference_score]
-    if REWARD_WEIGHTS["lean"] > 0:
-        active_signals.append(lean_score)
-    signals = active_signals
+    # Uncertainty = population std dev across active signal sources.
+    signals = [test_score, judge_score, preference_score]
     mean = sum(signals) / len(signals)
     variance = sum((s - mean) ** 2 for s in signals) / len(signals)
     reward_uncertainty = variance ** 0.5
@@ -121,10 +105,6 @@ def compute_oracle_reward(
         test_pass_rate=test_score,
         test_coverage_delta=test_result.get("coverage_delta", 0.0),
         tests_added=test_result.get("tests_added", 0),
-        lean_verified=lean_verified,
-        lean_coverage=lean_result.get("coverage", 0.0),
-        lean_passed=lean_result.get("passed", 0),
-        lean_total=lean_result.get("total", 0),
         judge_score=judge_score,
         judge_confidence=judge_result.get("confidence", 0.0),
         judge_dimensions=judge_result.get("dimensions", {}),
