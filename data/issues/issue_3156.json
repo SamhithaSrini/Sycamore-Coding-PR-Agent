@@ -1,0 +1,8 @@
+{
+  "id": "3156",
+  "title": "Remove previously deprecated code",
+  "body": "<!--\nReplace this comment with a description of what the feature should do.\nInclude details such as links to relevant specs or previous discussions.\n-->\n\n<!--\nReplace this comment with an example of the problem which this feature\nwould resolve. Is this problem solvable without changes to Click, such\nas by subclassing or using an extension?\n-->",
+  "labels": [],
+  "url": "https://github.com/pallets/click/issues/3156",
+  "created_at": "2025-11-22T19:08:51Z"
+}

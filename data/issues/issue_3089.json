@@ -1,0 +1,10 @@
+{
+  "id": "3089",
+  "title": "Help (--help) page customization high level design",
+  "body": "# Intro\n\nThis is a possible high level design for help page(passing in --help) customization. I hope to come to an ideal design that supports the standard and advanced user. I will put together my thoughts then try to work with the community to improve it.\n\n# Design\n\nHelp pages are basically an infinite space for customization with a large number of edge cases. The edge cases stem from the historical development of terminals and the very many shells and terminal emulators, each running on one or more operating systems. Because of this, I think Click should have 2 ways to generate help:\n\n1. Help pages generated directly by Click. No formatting except line breaks and alignment. The focus is on displaying information. Basically the current help pages with a couple of more features. There is a lot of customization on the text displayed but no layout or otherwise formatting customization. \n\n2. Very low level and completely customizable. The intention is for terminal customization libraries like Rich to be able to directly send their primitives to the terminal while having access to as much information about the current invocation as possible. The hope is that some people will write nice plugins, and then most users can pick a plugin that caters to their sense of taste. \n\n# Advantages\n\n- the potentially infinite space for customization is clearly bounded for the maintainers in a way that is easily communicated to users \n\n- the bounding frees Click maintainers to concern themselves with making a good CLI toolkit \n\n- The design also allows for explicit hooks for very dynamic help page customization.\n\n# Possible implementation path:\n- implement low level API \n- implement the standard help page on top of low level API \n\n# Downsides: \n- the default help page is a bit lackluster ",
+  "labels": [
+    "f:help"
+  ],
+  "url": "https://github.com/pallets/click/issues/3089",
+  "created_at": "2025-09-24T20:51:05Z"
+}

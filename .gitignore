@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+coverage.json
+/tmp/
+*.patch
+data/traces/
+data/finetune_datasets/
+data/preference_pairs/
+data/held_out_results/
+*.jsonl
+.DS_Store

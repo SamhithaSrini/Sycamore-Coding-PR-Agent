@@ -1,0 +1,10 @@
+{
+  "id": "3105",
+  "title": "`FuncParamType` should use `ValueError` for `self.fail(message)`",
+  "body": "FuncParamType currently just calls self.fail(value,...) if it self.func(value) raise a ValueError.  This is missing the point of the self.fail which is to give better feedback.  \nUsing typer so something like \n```python\n\n@dataclass\nclass MyClass:\n    myvalue: str\n     @staticmethod\n      def from_str(cls, input:Any) -> 'MyClass':\n              if input != 'works':\n                  raise ValueError(f'input was  {input=}, should be works')\n              return cls(input)\n@app.command('test', help='get snapshot')\nasync def test(\n    mydata: Annotated[\n        MyClass, typer.Argument(parser=MyClass.from_str)\n    ],\n) -> None:\n```\n<!--\nDescribe the expected behavior that should have happened but didn't.\n-->\nshould give str(error) not str(input)\n\n\nfix would be \n```python\nclass FuncParamType(ParamType):\n    def __init__(self, func: t.Callable[[t.Any], t.Any]) -> None:\n        self.name: str = func.__name__\n        self.func = func\n\n    def to_info_dict(self) -> dict[str, t.Any]:\n        info_dict = super().to_info_dict()\n        info_dict[\"func\"] = self.func\n        return info_dict\n\n    def convert(\n        self, value: t.Any, param: Parameter | None, ctx: Context | None\n    ) -> t.Any:\n        try:\n            return self.func(value)\n        except ValueError as e:\n            self.fail(str(e), param, ctx)\n```\nhappy to submit a PR if this makes sense.  Rather not have to create a customclass when `FuncParamType` is so close.  Not sure what else `FuncParamType` there there for, as there isn't really any documentation of why it exists, but typer uses it.",
+  "labels": [
+    "f:help"
+  ],
+  "url": "https://github.com/pallets/click/issues/3105",
+  "created_at": "2025-10-11T22:14:26Z"
+}

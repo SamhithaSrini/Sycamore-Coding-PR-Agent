@@ -1,0 +1,8 @@
+{
+  "id": "3036",
+  "title": "Add support for `set` and `frozenset` (and `dict`?) as native Click types",
+  "body": "### Context\n\nThis is a follow-up on https://github.com/pallets/click/issues/2610. Half of the latter has been solved by #3030. This ticket contain the other half that was not fixed by #3030.\n\nCC @drunkwcodes",
+  "labels": [],
+  "url": "https://github.com/pallets/click/issues/3036",
+  "created_at": "2025-08-13T12:01:19Z"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "3022",
+  "title": "Support `FORCE_COLOR` and `NO_COLOR` environment variables",
+  "body": "It would be great if the `FORCE_COLOR` and `NO_COLOR` environment variables could be used during calls to `click.echo`/`click.secho` to determine the default preference for colouring of stdout/stderr when an explicit preference for outputting colour is not set.\n\nIt appears that currently, click simply inspects whether the output stream considers itself to be a physical TTY. This is problematic on build systems such as GitLab or Jenkins or GitHub Actions, as logs that could be output in colour will not be since the output stream is still technically a file.\n\nSupporting this would allow simpler catering for outputs that are designed to help visually impaired users when viewing automated build outputs, but may have other applications as well.\n\nThese environment variables are a good candidate to be used, because [the Python interpreter already considers these specific variables](https://docs.python.org/3/using/cmdline.html#controlling-color), and other libraries such as `colorlog` also respect this.",
+  "labels": [],
+  "url": "https://github.com/pallets/click/issues/3022",
+  "created_at": "2025-07-30T08:30:01Z"
+}
