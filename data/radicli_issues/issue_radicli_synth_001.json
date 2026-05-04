@@ -1,0 +1,10 @@
+{
+  "id": "radicli_synth_001",
+  "title": "List converter should ignore empty segments from extra commas",
+  "body": "When a List[int] argument is passed with extra commas such as \"1,,2,\", get_list_converter() currently calls type_func(\"\") on the empty segment, raising ValueError instead of silently skipping it.\n\nExpected: List[int](\"1,,2,\") == [1, 2]\nGot: ValueError from int(\"\")\n\nRelevant code: radicli/util.py get_list_converter()\nTests live in radicli/tests/test_util.py\n\nPlease add a guard in the converter loop and add a regression test in test_util.py.",
+  "labels": [
+    "bug"
+  ],
+  "url": "https://github.com/explosion/radicli/issues/synth-001",
+  "created_at": "2026-05-04T00:00:00Z"
+}

@@ -1,0 +1,10 @@
+{
+  "id": "radicli_synth_011",
+  "title": "get_list_converter with custom delimiter strips wrong quotes",
+  "body": "When get_list_converter() is used with a non-comma delimiter such as \"|\", the bracket-stripping logic still checks for \"[\" and \"]\" which is correct, but the quote stripping iterates over items split by the custom delimiter and still strips single/double quotes from items that contain them legitimately.\n\n\n\nFix: only strip symmetric quote pairs (first char == last char AND both are quotes).\nAdd a test in radicli/tests/test_util.py with a pipe-delimited converter and quoted content.",
+  "labels": [
+    "bug"
+  ],
+  "url": "https://github.com/explosion/radicli/issues/synth-011",
+  "created_at": "2026-05-04T00:00:00Z"
+}

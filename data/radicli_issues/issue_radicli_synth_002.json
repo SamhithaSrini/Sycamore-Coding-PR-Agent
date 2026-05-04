@@ -1,0 +1,10 @@
+{
+  "id": "radicli_synth_002",
+  "title": "convert_uuid raises AttributeError on non-string input",
+  "body": "convert_uuid() in radicli/util.py calls UUID(value) directly. When value is already a UUID object (e.g. passed programmatically), it raises AttributeError instead of returning it unchanged.\n\n\n\nExpected: return the UUID unchanged if already a UUID instance.\nFix: add isinstance(value, UUID) early-return at the top of convert_uuid().\nAdd regression test in radicli/tests/test_util.py.",
+  "labels": [
+    "bug"
+  ],
+  "url": "https://github.com/explosion/radicli/issues/synth-002",
+  "created_at": "2026-05-04T00:00:00Z"
+}

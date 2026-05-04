@@ -1,0 +1,10 @@
+{
+  "id": "radicli_synth_014",
+  "title": "format_arg_help should return empty string for empty input",
+  "body": "format_arg_help() in radicli/util.py raises an error when passed an empty string or None.\n\n\n\nExpected: return \"\" for empty or None input.\nFix: add a guard at the top of format_arg_help() to return \"\" if not text.\nAdd a test in radicli/tests/test_util.py for empty string and None inputs.",
+  "labels": [
+    "bug"
+  ],
+  "url": "https://github.com/explosion/radicli/issues/synth-014",
+  "created_at": "2026-05-04T00:00:00Z"
+}

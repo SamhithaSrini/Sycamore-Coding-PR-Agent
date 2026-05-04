@@ -1,0 +1,10 @@
+{
+  "id": "radicli_synth_009",
+  "title": "convert_existing_path does not expand ~ home directory",
+  "body": "convert_existing_path() in radicli/util.py calls Path(path_str).exists() without expanding the tilde. Paths like \"~/myfile.txt\" always fail even when the file exists.\n\n\n\nFix: call Path(path_str).expanduser() before the exists() check in convert_existing_path() and the related convert_existing_file_path() and convert_existing_dir_path() functions.\nAdd a test in radicli/tests/test_util.py using a tmp_path fixture.",
+  "labels": [
+    "bug"
+  ],
+  "url": "https://github.com/explosion/radicli/issues/synth-009",
+  "created_at": "2026-05-04T00:00:00Z"
+}

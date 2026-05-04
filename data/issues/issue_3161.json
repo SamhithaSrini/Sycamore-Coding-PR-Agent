@@ -1,8 +1,0 @@
-{
-  "id": "3161",
-  "title": "[maintenance] Lint `import typing as t`",
-  "body": "Not sure if you'd want this but there's a plugin that I thought you might be interested in: https://pypi.org/p/flake8-typing-as-t. The only gotcha is that you'd have to re-add flake8 to pre-commit config for this.",
-  "labels": [],
-  "url": "https://github.com/pallets/click/issues/3161",
-  "created_at": "2025-11-28T02:01:51Z"
-}

@@ -160,25 +160,37 @@ def _explicit_python_paths(text: str) -> list[str]:
 
 
 def _keyword_file_hints(text: str, package_dir: str = PACKAGE_DIR) -> list:
-    text = text.lower()
+    """
+    Extract explicit function/method names from the issue and use grep
+    to find the exact file and line. Repo-agnostic — works for any package.
+    """
+    repo = Path(os.getenv("REPO_PATH", str(REPO_PATH)))
     hints = []
-    mapping = [
-        (("invoke_without_command", "write_usage", "helpformatter", "usage"), f"{package_dir}/core.py"),
-        (("funcparamtype", "badparameter", "self.fail", "valueerror"), f"{package_dir}/types.py"),
-        (("shell completion", "completion", "zsh", "bash", "fish"), f"{package_dir}/shell_completion.py"),
-        (("pager", "stdin", "flush"), f"{package_dir}/_termui_impl.py"),
-        (("force_color", "no_color", "color"), f"{package_dir}/utils.py"),
-        (("pyright", "verifytypes", "typing", ".pyi"), f"{package_dir}/core.py"),
-        (("deprecated", "deprecation"), f"{package_dir}/core.py"),
-        (("list", "comma", "quoted", "converter"), f"{package_dir}/util.py", "get_list_converter"),
-        (("literal", "enum", "choice", "parser", "parse"), f"{package_dir}/parser.py"),
-        (("subcommand", "placeholder", "command", "extra"), f"{package_dir}/cli.py"),
-    ]
-    for item in mapping:
-        keywords, rel_path = item[0], item[1]
-        if any(keyword in text for keyword in keywords):
-            line_hint = item[2] if len(item) > 2 else 1
-            hints.append((rel_path, line_hint))
+
+    # Pull out explicit function names like get_list_converter(), convert_uuid(), etc.
+    func_names = re.findall(r'\b([a-z][a-z0-9_]{3,})\(\)', text)
+    # Also grab CamelCase class names
+    class_names = re.findall(r'\b([A-Z][a-zA-Z0-9]{3,})\b', text)
+    candidates = list(dict.fromkeys(func_names + class_names))[:6]
+
+    for name in candidates:
+        try:
+            result = subprocess.run(
+                ["grep", "-rn", f"def {name}\\|class {name}", package_dir],
+                cwd=repo, capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.splitlines():
+                parts = line.split(":", 2)
+                if len(parts) >= 2 and parts[0].endswith(".py"):
+                    try:
+                        lineno = int(parts[1])
+                    except ValueError:
+                        lineno = 1
+                    hints.append((parts[0], lineno))
+        except Exception:
+            pass
+
+    return list(dict.fromkeys(hints))[:4]
     return hints
 
 
@@ -453,7 +465,10 @@ def _build_diff_from_changes(content: str, issue: dict = None) -> str:
         old_text = _extract_tag(change_block, "old")
         new_text = _extract_new_text(change_block)
 
-        if not file_path or not old_text or new_text is None:
+        # Guard: file_path must look like a real path, not LLM prose
+        if (not file_path or not old_text or new_text is None
+                or len(file_path) > 200 or "\n" in file_path
+                or not file_path.endswith(".py")):
             continue
 
         full_path = repo / file_path

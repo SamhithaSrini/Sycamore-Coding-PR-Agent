@@ -32,6 +32,21 @@ historical distribution of coder submissions.
 
 - 2 trace(s): low alignment and bad outcome — coder likely ignored valid feedback; reviewer should make blocking changes explicit.
 
+## Cycle 1 Auto-Calibration
+
+- 1 trace(s): low alignment but good outcome — reviewer comments were likely irrelevant or non-actionable.
+- 2 trace(s): low alignment and bad outcome — coder likely ignored valid feedback; reviewer should make blocking changes explicit.
+
+## Cycle 2 Auto-Calibration
+
+- 1 trace(s): low alignment but good outcome — reviewer comments were likely irrelevant or non-actionable.
+- 2 trace(s): low alignment and bad outcome — coder likely ignored valid feedback; reviewer should make blocking changes explicit.
+
 ## AUTO-RECALIBRATION
 
 Adversarial reviewer: 100% rejection rate. Be willing to approve good PRs.
+
+## Cycle 3 Auto-Calibration
+
+- 1 trace(s): low alignment but good outcome — reviewer comments were likely irrelevant or non-actionable.
+- 2 trace(s): low alignment and bad outcome — coder likely ignored valid feedback; reviewer should make blocking changes explicit.

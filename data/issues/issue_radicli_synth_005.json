@@ -1,0 +1,10 @@
+{
+  "id": "radicli_synth_005",
+  "title": "SimpleFrozenDict.pop should raise TypeError not return default",
+  "body": "SimpleFrozenDict in radicli/util.py overrides pop() to prevent mutation, but the current implementation silently returns the default value instead of raising TypeError like __setitem__ and update() do.\n\n\n\nExpected: raise TypeError(\"SimpleFrozenDict is immutable\") consistent with __setitem__.\nFix: change pop() to always raise TypeError.\nAdd a test in radicli/tests/test_util.py verifying pop raises TypeError.",
+  "labels": [
+    "bug"
+  ],
+  "url": "https://github.com/explosion/radicli/issues/synth-005",
+  "created_at": "2026-05-04T00:00:00Z"
+}

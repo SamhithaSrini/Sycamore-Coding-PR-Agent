@@ -1,0 +1,10 @@
+{
+  "id": "radicli_synth_015",
+  "title": "convert_str_or_uuid should try UUID conversion before returning str",
+  "body": "convert_str_or_uuid() in radicli/util.py currently always succeeds and returns a string or UUID, but if the input looks like a UUID (36 chars, 4 hyphens) and fails UUID validation (e.g. wrong checksum), it silently returns the malformed string instead of raising a helpful error.\n\n\n\nFix: if the value matches the UUID pattern (len==36, hyphens in right places) but fails UUID() parsing, raise ValueError with a clear message instead of falling back to str.\nAdd a test in radicli/tests/test_util.py for both valid UUIDs, plain strings, and malformed UUID-shaped strings.",
+  "labels": [
+    "bug"
+  ],
+  "url": "https://github.com/explosion/radicli/issues/synth-015",
+  "created_at": "2026-05-04T00:00:00Z"
+}

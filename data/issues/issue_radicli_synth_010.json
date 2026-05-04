@@ -1,0 +1,10 @@
+{
+  "id": "radicli_synth_010",
+  "title": "CliParserError message should be included in str(error)",
+  "body": "CliParserError in radicli/util.py inherits from SystemExit and stores message in self.message, but str(error) returns the exit code (1), not the message string. This makes it hard to assert on error messages in tests.\n\n\n\nFix: override __str__ in CliParserError to return self.message.\nAdd a test in radicli/tests/test_util.py.",
+  "labels": [
+    "bug"
+  ],
+  "url": "https://github.com/explosion/radicli/issues/synth-010",
+  "created_at": "2026-05-04T00:00:00Z"
+}

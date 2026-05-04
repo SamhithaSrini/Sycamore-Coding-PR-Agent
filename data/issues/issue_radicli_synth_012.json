@@ -1,0 +1,10 @@
+{
+  "id": "radicli_synth_012",
+  "title": "CommandNotFoundError should list available commands in sorted order",
+  "body": "CommandNotFoundError in radicli/util.py stores the available command names and displays them in the error message, but the options list is not sorted. The order depends on dict insertion order, making error messages non-deterministic across Python versions.\n\n\n\nFix: sort the options list in CommandNotFoundError.__init__ before storing.\nAdd a test in radicli/tests/test_util.py verifying the options appear sorted.",
+  "labels": [
+    "bug"
+  ],
+  "url": "https://github.com/explosion/radicli/issues/synth-012",
+  "created_at": "2026-05-04T00:00:00Z"
+}
