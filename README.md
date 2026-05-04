@@ -71,10 +71,10 @@ The key distinction: the coder's intra-trace loop is about *responding to feedba
 ### 5. difflib-Based Patch Generation
 The coder outputs `<old>/<new>` code blocks; the system builds the unified diff with `difflib.unified_diff`. Eliminates the classic LLM failure of wrong `@@ hunk header counts` that cause `git apply` to fail with "corrupt patch."
 
-### 5. Information Barrier
+### 6. Information Barrier
 Ground truth (test results, coverage) never touches agent prompts. Only a scalar reward and directional hints (`test_signal: "pass"/"fail"/"partial"`) leave the oracle layer.
 
-### 6. Anti-Pathology Stack
+### 7. Anti-Pathology Stack
 | Pathology | Detection | Response |
 |-----------|-----------|----------|
 | Reviewer collapse | >70% round-1 approval rate | Force-update CALIBRATION.md |
@@ -99,20 +99,31 @@ Early runs on click confirmed the end-to-end loop: patches apply, tests run, rew
 
 Reward hacking eliminated after cycle 1 as LEARNED_PATTERNS propagated the judge's reasoning back to the coder. click has many open feature-request issues that produce empty diffs — radicli was chosen as the primary training repo for its smaller, more focused issue backlog.
 
-### explosion/radicli — smoke test (1 issue)
+### explosion/radicli — full run (3 cycles, 4 issues/cycle, 3 held-out)
 
-First run on radicli after the LEARNED_PATTERNS memory was seeded from click training:
+| Cycle | Avg Reward | Test Pass Rate | Resolve ≤2r | Alignment | Hack Rate | Held-Out Reward |
+|-------|-----------|----------------|-------------|-----------|-----------|-----------------|
+| 1     | 0.821     | 0.992          | 0.500       | 0.464     | 0.000     | 0.527           |
+| 2     | 0.450     | 0.990          | 0.500       | 0.383     | **0.500** | 0.759           |
+| 3     | 0.754     | 0.746          | **0.750**   | 0.572     | 0.000     | **0.795**       |
+
+**Held-out reward improved +51% from cycle 1 to cycle 3** (0.527 → 0.795) — the key generalization metric since held-out issues were never seen during training.
+
+The cycle 2 reward hacking spike (0.500) is instructive: the judge caught 3 attempts where the coder wrote detailed descriptions of fixes that weren't in the diff. All three were zeroed and added to LEARNED_PATTERNS. By cycle 3 hacking dropped back to 0.000 and held-out reward hit its peak.
+
+Cycle 3's lower `avg_test_pass_rate` (0.746 vs 0.990) reflects two patches that failed to apply cleanly — both involved nested function context in `get_list_converter`. With only 4 issues per cycle, one patch failure is a 25% hit on the average. The held-out trend is the more reliable signal.
+
+**Sample resolved issue — cycle 1, round 1:**
 
 | Metric | Value |
 |--------|-------|
-| Oracle reward | **0.841** |
-| Test pass rate | **1.00** (128/128) |
-| Tests added | **6** |
-| Judge score | **0.97** |
+| Issue | List converter should ignore empty segments from extra commas |
+| Oracle reward | **0.907** |
+| Test pass rate | **1.00** (127/127) |
+| Tests added | **5** |
+| Judge score | **0.95** |
 | Resolved in | **1 round** |
 | Reward hacking | **0.000** |
-
-Full multi-cycle radicli results to follow.
 
 ---
 
