@@ -162,18 +162,6 @@ We deliberately chose not to track reward on training issues as a primary metric
 
 ## Results
 
-### pallets/click — system validation (3 training cycles, 5 issues/cycle)
-
-Early runs on click confirmed the end-to-end loop: patches apply, tests run, reward hacking is detected and zeroed out, LEARNED_PATTERNS accumulate correctly.
-
-| Cycle | Avg Reward | Test Pass Rate | Hacking Rate |
-|-------|-----------|----------------|--------------|
-| 1     | 0.055     | 0.186          | 0.400        |
-| 2     | 0.323     | 0.373          | 0.000        |
-| 3     | 0.369     | 0.373          | 0.000        |
-
-Reward hacking eliminated after cycle 1 as LEARNED_PATTERNS propagated the judge's reasoning back to the coder. click has many open feature-request issues that produce empty diffs — radicli was chosen as the primary training repo for its smaller, more focused issue backlog.
-
 ### explosion/radicli — full run (3 cycles, 4 issues/cycle, 3 held-out)
 
 | Cycle | Avg Reward | Test Pass Rate | Resolve ≤2r | Alignment | Hack Rate | Held-Out Reward |
