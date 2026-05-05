@@ -1,3 +1,4 @@
+<img width="417" height="720" alt="Screenshot 2026-05-04 at 6 12 29 PM" src="https://github.com/user-attachments/assets/a6896c95-c43d-4deb-88dc-7eb2939655be" />
 # Sycamore — Co-Optimizing AI Coding & Review Agents
 
 A self-improving multi-agent system where a **Coding Agent** and a **Review Agent** co-optimize through structured interaction traces, grounded by real test execution and an independent LLM judge.
